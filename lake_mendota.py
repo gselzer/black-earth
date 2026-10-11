@@ -1,12 +1,12 @@
 """Lake Mendota bathymetry wallpaper.
 
 The dataset for this wallpaper can be found with the following DOI.
-Contained within is a shapefile containing the bathymetry polygons.
+Contained within is a zip archive with a shapefile of bathymetry polygons.
 
 DOI: https://doi.org/10.6073/pasta/d2169aa8f69918a5b5644f8248345807
 
 Usage:
-    uv run lake_mendota.py path/to/yld_bathymetry.shp -o out/
+    uv run lake_mendota.py path/to/knb-lter-ntl.153.11.zip -o out/
 """
 
 # /// script
@@ -23,6 +23,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import io
+import tempfile
+import zipfile
 from pathlib import Path
 from rich.console import Console
 
@@ -37,7 +40,44 @@ from matplotlib.colors import LinearSegmentedColormap
 from PIL import Image, ImageDraw
 from scipy import ndimage as ndi
 
+BATHYMETRY_SHP = "yld_bathymetry/yld_bathymetry.shp"
+
 FT_TO_M = 0.3048
+
+
+# --------------------------------------------------------------------------
+# Zip extraction
+# --------------------------------------------------------------------------
+def extract_from_zip(zip_path: Path, target: str, dest: Path) -> Path:
+    """Find *target* inside a (possibly nested) zip and extract its containing
+    archive into *dest*, returning the path to the extracted file.
+
+    *target* uses '/' to separate a nested zip member from the file within it:
+      "container/file.shp"  →  open member 'container' (or 'container.zip') as
+                                a zip, then extract 'file.shp' from inside it.
+      "file.shp"            →  extract directly from zip_path."""
+    parts = target.split("/", 1)
+    container, filename = (parts[0], parts[1]) if len(parts) == 2 else (None, parts[0])
+
+    def _extract(zf: zipfile.ZipFile, name: str) -> Path:
+        zf.extractall(dest)
+        return dest / name
+
+    with zipfile.ZipFile(zip_path) as outer:
+        if container is None:
+            for name in outer.namelist():
+                if name == filename:
+                    return _extract(outer, name)
+        else:
+            for candidate in (container, container + ".zip"):
+                if candidate not in outer.namelist():
+                    continue
+                with zipfile.ZipFile(io.BytesIO(outer.read(candidate))) as inner:
+                    for inner_name in inner.namelist():
+                        if inner_name == filename:
+                            return _extract(inner, inner_name)
+
+    raise FileNotFoundError(f"{target!r} not found in {zip_path}")
 FRAME_W, FRAME_H = 3840, 2160
 
 CMAP = LinearSegmentedColormap.from_list(
@@ -54,25 +94,25 @@ CAPTION_SUB = "NTL-LTER 10-ft survey contours   ·   max 25 m"
 def rasterize_bands(shp_path: Path, cell: float = 5.0, pad: float = 100.0):
     """Return (band, cell) where band[y, x] is the band's upper depth in ft,
     or -1 on land. Rings are XOR-ed so holes (shoals, islands) cut out."""
-    r = shapefile.Reader(str(shp_path))
-    x0, y0, x1, y1 = r.bbox
-    x0, y0, x1, y1 = x0 - pad, y0 - pad, x1 + pad, y1 + pad
-    w, h = int((x1 - x0) / cell), int((y1 - y0) / cell)
+    with shapefile.Reader(str(shp_path)) as r:
+        x0, y0, x1, y1 = r.bbox
+        x0, y0, x1, y1 = x0 - pad, y0 - pad, x1 + pad, y1 + pad
+        w, h = int((x1 - x0) / cell), int((y1 - y0) / cell)
 
-    def ring_mask(pts):
-        im = Image.new("1", (w, h), 0)
-        ImageDraw.Draw(im).polygon(
-            [((x - x0) / cell, (y1 - y) / cell) for x, y in pts], fill=1
-        )
-        return np.array(im, bool)
+        def ring_mask(pts):
+            im = Image.new("1", (w, h), 0)
+            ImageDraw.Draw(im).polygon(
+                [((x - x0) / cell, (y1 - y) / cell) for x, y in pts], fill=1
+            )
+            return np.array(im, bool)
 
-    band = np.full((h, w), -1, int)
-    for shape, rec in zip(r.shapes(), r.records()):
-        mask = np.zeros((h, w), bool)
-        parts = [*shape.parts, len(shape.points)]
-        for a, b in zip(parts[:-1], parts[1:]):
-            mask ^= ring_mask(shape.points[a:b])
-        band[mask] = rec["DEPTH"]
+        band = np.full((h, w), -1, int)
+        for shape, rec in zip(r.shapes(), r.records()):
+            mask = np.zeros((h, w), bool)
+            parts = [*shape.parts, len(shape.points)]
+            for a, b in zip(parts[:-1], parts[1:]):
+                mask ^= ring_mask(shape.points[a:b])
+            band[mask] = rec["DEPTH"]
     return band, cell
 
 
@@ -180,18 +220,21 @@ def render_profiles(depth, path: Path, n_rows=88, dip_rows=4.0):
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("shapefile", type=Path, help="yld_bathymetry.shp")
-    p.add_argument("-o", "--outdir", type=Path, default=Path(".") / "out")
+    p.add_argument("zipfile", type=Path, help="knb-lter-ntl.153.11.zip")
+    p.add_argument("-o", "--outdir", type=Path, default=Path(".") / "gallery")
     args = p.parse_args()
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     console = Console()
 
-    with console.status("[bold green]Creating a raster image from the shapefile...", spinner="dots"):
-        band, _ = rasterize_bands(args.shapefile)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        shp_path = extract_from_zip(args.zipfile, BATHYMETRY_SHP, Path(tmpdir))
+
+        with console.status("[bold green]Creating a raster image from the shapefile...", spinner="dots"):
+            band, _ = rasterize_bands(shp_path)
     with console.status("[bold green]Interpolating depth surface from rasterized bands...", spinner="dots"):
         depth = depth_surface(band)
-    out_path = args.outdir / "mendota_profiles.png"
+    out_path = args.outdir / "lake_mendota.png"
     with console.status("[bold green]Rendering profiles...", spinner="dots"):
         render_profiles(depth, out_path)
     console.print(f"[bold green]Saved to {out_path}")
