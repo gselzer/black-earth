@@ -1,0 +1,8 @@
+# Output directory
+out/
+
+# VS Code settings
+.vscode/
+
+# Python virtual environments
+.venv/
