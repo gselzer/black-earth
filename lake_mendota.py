@@ -85,7 +85,8 @@ CMAP = LinearSegmentedColormap.from_list(
     [(0, "#0b2a3a"), (0.35, "#11677e"), (0.7, "#3cc4d6"), (1, "#e8fbff")],
 )
 CAPTION_TITLE = "LAKE MENDOTA"
-CAPTION_SUB = "NTL-LTER 10-ft survey contours   ·   max 25 m"
+# https://en.wikipedia.org/wiki/Lake_Mendota#Lake_study
+CAPTION_SUB = "The most studied lake in the world   ·   NTL-LTER 10-ft survey contours"
 
 
 # --------------------------------------------------------------------------
@@ -234,7 +235,7 @@ def main():
             band, _ = rasterize_bands(shp_path)
     with console.status("[bold green]Interpolating depth surface from rasterized bands...", spinner="dots"):
         depth = depth_surface(band)
-    out_path = args.outdir / "lake_mendota.png"
+    out_path = args.outdir / Path(__file__).name.replace(".py", ".png")
     with console.status("[bold green]Rendering profiles...", spinner="dots"):
         render_profiles(depth, out_path)
     console.print(f"[bold green]Saved to {out_path}")

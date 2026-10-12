@@ -1,3 +1,6 @@
+# Cached geo data
+.cache/
+
 # VS Code settings
 .vscode/
 
