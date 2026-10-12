@@ -2,7 +2,7 @@
 
 A collection of mostly-black, geography-inspired Wisconsin wallpapers, each derived from a fully-reproducible Python script.
 
-This collection is named as a reference to [Black Earth, Wisconsin](https://en.wikipedia.org/wiki/Black_Earth,_Wisconsin).
+This collection is inspired by the [Blackbody](https://alistair-roberts.co.uk/blackbody) collection of wallpapers, and is named as a reference to [Black Earth, Wisconsin](https://en.wikipedia.org/wiki/Black_Earth,_Wisconsin).
 
 ## Usage
 
